@@ -2,7 +2,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Mollie Payment Gateway\n"
-"POT-Creation-Date: 2016-11-22 06:16+0100\n"
+"POT-Creation-Date: 2025-03-06 06:16+0100\n"
 "PO-Revision-Date: 2016-09-25 16:00+0200\n"
 "Last-Translator: \n"
 "Language-Team: Cloudstek <info@cloudstek.nl>\n"
@@ -42,6 +42,30 @@ msgstr ""
 msgid "Enable sandbox mode with test API key. No real transactions will be made."
 msgstr ""
 
+#: mollie.php:76
+msgid "Enable Recurring Payments"
+msgstr ""
+
+#: mollie.php:81
+msgid "Enable support for recurring payments using Mollie's recurring features."
+msgstr ""
+
+#: mollie.php:84
+msgid "Recurring Payment Type"
+msgstr ""
+
+#: mollie.php:87
+msgid "Manual Recurring Payments"
+msgstr ""
+
+#: mollie.php:88
+msgid "Automatic Subscription"
+msgstr ""
+
+#: mollie.php:93
+msgid "Choose how recurring payments should be processed. Manual will create individual payments for each invoice. Subscription will create a Mollie subscription for automated charging."
+msgstr ""
+
 #: mollie/AdminStatus.php:60
 msgid "Please enter your API key(s) to use this payment gateway."
 msgstr ""
@@ -56,6 +80,10 @@ msgstr ""
 
 #: mollie/Link.php:91
 msgid "Your payment is currently pending and will be processed automatically."
+msgstr ""
+
+#: mollie/Link.php:101
+msgid "By completing this payment, you authorize future payments to be charged automatically."
 msgstr ""
 
 #: mollie/Link.php:144

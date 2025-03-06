@@ -1,7 +1,7 @@
 <?php
 /**
  * Mollie Payment Gateway
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 namespace Cloudstek\WHMCS\Mollie;
@@ -28,6 +28,9 @@ class Callback
     /** @var string WHMCS version */
     private $whmcsVersion;
 
+    /** @var bool Enable recurring */
+    private $enableRecurring;
+
     /**
      * Callback constructor
      */
@@ -47,6 +50,9 @@ class Callback
 
         // Sandbox.
         $this->sandbox = $this->params['sandbox'] == 'on';
+        
+        // Recurring payments.
+        $this->enableRecurring = isset($this->params['enable_recurring']) && $this->params['enable_recurring'] == 'on';
     }
 
     /**
@@ -127,6 +133,68 @@ class Callback
             $this->params['paymentmethod'],
             false
         );
+        
+        // Check if this was a first payment for recurring and store mandate if so
+        if ($this->enableRecurring && isset($transaction->metadata->recurring) && $transaction->metadata->recurring) {
+            $this->handleRecurringPayment($transaction);
+        }
+    }
+    
+    /**
+     * Handle recurring payment setup
+     *
+     * @param Payment $transaction Transaction.
+     * @return void
+     */
+    private function handleRecurringPayment(Payment $transaction)
+    {
+        // Get API key
+        $apiKey = $this->getApiKey();
+        
+        try {
+            // Mollie API instance
+            $mollie = new Mollie($apiKey);
+            
+            // Get customer ID from transaction
+            $customerId = $transaction->customerId;
+            
+            if (!empty($customerId)) {
+                // Get mandates for this customer
+                $mandates = $mollie->customer($customerId)->mandates()->all();
+                
+                // Find the valid mandate (should be the one created by this payment)
+                foreach ($mandates as $mandate) {
+                    if ($mandate->status === 'valid') {
+                        // Get client ID
+                        $userId = $this->pluck(
+                            Capsule::table('tblinvoices')
+                                ->where('id', $transaction->metadata->whmcs_invoice),
+                            'userid'
+                        );
+                        
+                        // Initialize recurring module
+                        $recurring = new Recurring($this->params);
+                        $recurring->run();
+                        
+                        // Store mandate in database
+                        $recurring->storeMandate($userId, $mandate->id, $mandate->method, $mandate->status);
+                        
+                        $this->logTransaction(
+                            "Valid mandate {$mandate->id} created for customer {$customerId} with method {$mandate->method}.",
+                            'Success'
+                        );
+                        
+                        break;
+                    }
+                }
+            }
+        } catch (\Exception $ex) {
+            // Log error
+            $this->logTransaction(
+                "Error processing recurring payment mandate: " . $ex->getMessage(),
+                'Error'
+            );
+        }
     }
 
     /**
@@ -176,6 +244,58 @@ class Callback
     }
 
     /**
+     * Handle subscription notification
+     *
+     * @param string $subscriptionId Subscription ID.
+     * @return void
+     */
+    private function handleSubscriptionNotification($subscriptionId)
+    {
+        // Get API key
+        $apiKey = $this->getApiKey();
+        
+        try {
+            // Mollie API instance
+            $mollie = new Mollie($apiKey);
+            
+            // Get subscription details
+            $subscription = $mollie->subscription($subscriptionId)->get();
+            
+            // Get WHMCS client ID from database
+            $clientId = $this->pluck(
+                Capsule::table('mod_mollie_subscriptions')
+                    ->where('subscriptionid', $subscriptionId),
+                'clientid'
+            );
+            
+            if (!$clientId) {
+                throw new \Exception("Cannot find client ID for subscription {$subscriptionId}");
+            }
+            
+            // Update subscription status in database
+            Capsule::table('mod_mollie_subscriptions')
+                ->where('subscriptionid', $subscriptionId)
+                ->update([
+                    'status' => $subscription->status,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                    'next_payment_date' => $subscription->nextPaymentDate
+                ]);
+            
+            // Log subscription update
+            $this->logTransaction(
+                "Subscription {$subscriptionId} status updated to {$subscription->status}.",
+                'Success'
+            );
+        } catch (\Exception $ex) {
+            // Log error
+            $this->logTransaction(
+                "Error processing subscription notification: " . $ex->getMessage(),
+                'Error'
+            );
+        }
+    }
+
+    /**
      * Check if gateway module is activated and API keys are configured
      *
      * If no API keys have been entered, we cannot handle any payments and we can skip initialisation steps.
@@ -213,6 +333,12 @@ class Callback
         $mollie = new Mollie($apiKey);
 
         try {
+            // Check if this is a subscription notification
+            if (strpos($transId, 'sub_') === 0) {
+                $this->handleSubscriptionNotification($transId);
+                return;
+            }
+            
             // Get transaction.
             $transaction = $mollie->payment($transId)->get();
 

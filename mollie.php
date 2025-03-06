@@ -1,7 +1,7 @@
 <?php
 /**
  * Mollie Payment Gateway
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 if (!defined("WHMCS")) {
@@ -13,6 +13,8 @@ require_once __DIR__ . '/mollie/vendor/autoload.php';
 use Cloudstek\WHMCS\Mollie\AdminStatus as MollieAdminStatus;
 use Cloudstek\WHMCS\Mollie\Link as MollieLink;
 use Cloudstek\WHMCS\Mollie\Refund as MollieRefund;
+use Cloudstek\WHMCS\Mollie\Capture as MollieCapture;
+use Cloudstek\WHMCS\Mollie\Recurring as MollieRecurring;
 
 /**
  * Payment gateway metadata
@@ -22,7 +24,9 @@ function mollie_MetaData()
 {
     return array(
         'DisplayName'   => 'Mollie',
-        'APIVersion'    => '1.1'
+        'APIVersion'    => '1.1',
+        'DisableLocalCreditCardInput' => true,
+        'TokenisedStorage' => false,
     );
 }
 
@@ -70,6 +74,26 @@ function mollie_config()
                 $textDomain,
                 'Enable sandbox mode with test API key. No real transactions will be made.'
             )
+        ),
+        'enable_recurring' => array(
+            'FriendlyName' => dgettext($textDomain, 'Enable Recurring Payments'),
+            'Type' => 'yesno',
+            'Description' => dgettext(
+                $textDomain,
+                'Enable support for recurring payments using Mollie\'s recurring features.'
+            )
+        ),
+        'recurring_type' => array(
+            'FriendlyName' => dgettext($textDomain, 'Recurring Payment Type'),
+            'Type' => 'dropdown',
+            'Options' => array(
+                'recurring' => dgettext($textDomain, 'Manual Recurring Payments'),
+                'subscription' => dgettext($textDomain, 'Automatic Subscription')
+            ),
+            'Description' => dgettext(
+                $textDomain,
+                'Choose how recurring payments should be processed. Manual will create individual payments for each invoice. Subscription will create a Mollie subscription for automated charging.'
+            )
         )
     );
 }
@@ -87,6 +111,18 @@ function mollie_refund(array $params)
 }
 
 /**
+ * Capture recurring payment
+ *
+ * @see mollie/Capture.php
+ * @param array $params Capture parameters.
+ * @return array
+ */
+function mollie_capture(array $params)
+{
+    return (new MollieCapture($params))->run();
+}
+
+/**
  * Invoice page payment form output
  *
  * @see mollie/Link.php
@@ -95,6 +131,11 @@ function mollie_refund(array $params)
  */
 function mollie_link(array $params)
 {
+    // Initialize recurring module
+    if (isset($params['enable_recurring']) && $params['enable_recurring'] == 'on') {
+        (new MollieRecurring($params))->run();
+    }
+
     return (new MollieLink($params))->run();
 }
 

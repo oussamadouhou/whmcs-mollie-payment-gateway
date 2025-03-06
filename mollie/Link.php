@@ -1,7 +1,7 @@
 <?php
 /**
  * Mollie Payment Gateway
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 namespace Cloudstek\WHMCS\Mollie;
@@ -26,6 +26,9 @@ class Link extends ActionBase
 
     /** @var string $nonceToken Nonce token */
     private $nonceToken;
+    
+    /** @var bool $enableRecurring */
+    private $enableRecurring;
 
     /**
      * Link action constructor
@@ -46,6 +49,9 @@ class Link extends ActionBase
 
         // Nonce token.
         $this->nonceToken = $this->clientDetails['userid'] . session_id();
+        
+        // Recurring payments.
+        $this->enableRecurring = isset($this->gatewayParams['enable_recurring']) && $this->gatewayParams['enable_recurring'] == 'on';
     }
 
     /**
@@ -96,6 +102,14 @@ FORM;
         // Add sandbox message.
         if ($this->sandbox) {
             $form = '<strong style="color: red;">SANDBOX MODE</strong><br />' . $form;
+        }
+        
+        // Add recurring notice
+        if ($this->enableRecurring) {
+            $form = '<p>'
+                . dgettext($this->textDomain, 'By completing this payment, you authorize future payments to be charged automatically.')
+                . '</p>'
+                . $form;
         }
 
         return $form;
@@ -164,16 +178,38 @@ FORM;
 
                 // Check nonce and create payment.
                 if (!empty($nonce) && $this->nonce->check($nonce, $this->nonceToken)) {
+                    // Payment parameters
+                    $paymentParams = array(
+                        'whmcs_invoice' => $this->invoiceId
+                    );
+                    
+                    // Extra parameters
+                    $extraParams = array(
+                        'webhookUrl' => $this->getWebhookUrl()
+                    );
+                    
+                    // Check if we need to handle this as a recurring first payment
+                    if ($this->enableRecurring) {
+                        // Initialize recurring module
+                        $recurring = new Recurring($this->gatewayParams);
+                        
+                        // Check if client already has a valid mandate
+                        $validMandate = $recurring->getValidMandate($this->clientDetails['userid']);
+                        
+                        if (!$validMandate) {
+                            // No valid mandate, make this a first payment to establish mandate
+                            $extraParams['sequenceType'] = 'first';
+                            $paymentParams['recurring'] = true;
+                            $paymentParams['first_payment'] = true;
+                        }
+                    }
+
                     $transaction = $customer->payment()->create(
                         $this->actionParams['amount'],
                         $this->actionParams['description'],
                         $this->actionParams['returnurl'],
-                        array(
-                            'whmcs_invoice' => $this->invoiceId
-                        ),
-                        array(
-                            'webhookUrl' => $this->getWebhookUrl()
-                        )
+                        $paymentParams,
+                        $extraParams
                     );
 
                     // Store pending transaction.
